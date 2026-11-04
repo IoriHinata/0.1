@@ -4,7 +4,7 @@
 
 The upstream ColibriOS kernel is x86. This directory is the engineering workspace for a *new MIPS target port*, not a claim that upstream kernel sources already support MIPS. Do not copy an x86 `kernel.mnt`, ISO or floppy image to the player.
 
-## Bring-up order
+## Current code\nThe initial freestanding MIPS kernel is in `mips/`. It establishes an entry stub, C runtime and a RAM-resident diagnostic record. It deliberately avoids display/GPIO/MMIO writes until the exact board map is known. Build instructions and constraints are in `mips/README.md`.\n\n## Bring-up order
 
 1. Confirm SoC stepping and exact board revision from a read-only NAND/firmware dump.
 2. Identify exception vectors, reset path, RAM size/map, cache behaviour, clock tree and watchdog.
