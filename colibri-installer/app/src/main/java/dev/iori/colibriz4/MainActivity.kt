@@ -218,7 +218,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun appendDetails(value: String) { details.text = details.text + value }
+    private fun appendDetails(value: String) { details.append(value) }
 
     private fun runInstallationSimulation() {
         val log = StringBuilder()
