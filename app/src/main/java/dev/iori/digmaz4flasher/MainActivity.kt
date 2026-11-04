@@ -17,17 +17,21 @@ class MainActivity : Activity() {
     private lateinit var details: TextView
     private lateinit var scanButton: Button
     private var selected: UsbDevice? = null
-    private val permissionAction = "${BuildConfig.APPLICATION_ID}.USB_PERMISSION"
+    private val permissionAction = "dev.iori.digmaz4flasher.USB_PERMISSION"
 
     private val permissionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action != permissionAction) return
-            val device = if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
-                         else @Suppress("DEPRECATION") intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+            val device = getUsbDevice(intent)
             if (device != null && usb.hasPermission(device)) inspect(device)
             else status.text = "USB permission was not granted. Nothing was written to the player."
         }
     }
+
+    @Suppress("DEPRECATION")
+    private fun getUsbDevice(intent: Intent): UsbDevice? =
+        if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
+        else intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -37,7 +41,7 @@ class MainActivity : Activity() {
         buildUi()
         val filter = IntentFilter(permissionAction)
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(permissionReceiver, filter, RECEIVER_NOT_EXPORTED)
-        else @Suppress("DEPRECATION") registerReceiver(permissionReceiver, filter)
+        else registerReceiver(permissionReceiver, filter)
         scan()
     }
 
