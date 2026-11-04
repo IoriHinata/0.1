@@ -1,10 +1,19 @@
 package dev.iori.colibriz4
 
 import android.app.Activity
+import android.app.PendingIntent
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.hardware.usb.*
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.widget.*
+import java.io.ByteArrayOutputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.*
@@ -18,12 +27,50 @@ class MainActivity : Activity() {
     private var pendingReport = ""
     private val pickImage = 41
     private val exportReportCode = 42
+    private val permissionAction by lazy { "${packageName}.USB_PERMISSION" }
+    private var receiverRegistered = false
+
+    private val usbReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            when (intent.action) {
+                permissionAction -> {
+                    val device = usbDeviceExtra(intent) ?: return
+                    if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
+                        connectAndProbe(device)
+                    } else {
+                        status.text = "USB: permission denied"
+                        appendDetails("Android USB permission was denied for ${device.deviceName}.")
+                    }
+                }
+                UsbManager.ACTION_USB_DEVICE_ATTACHED,
+                UsbManager.ACTION_USB_DEVICE_DETACHED -> inspectUsb()
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         usb = getSystemService(USB_SERVICE) as UsbManager
         render()
+        val filter = IntentFilter().apply {
+            addAction(permissionAction)
+            addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
+            addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
+        }
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(usbReceiver, filter, RECEIVER_NOT_EXPORTED)
+        else @Suppress("DEPRECATION") registerReceiver(usbReceiver, filter)
+        receiverRegistered = true
         inspectUsb()
+    }
+
+    override fun onDestroy() {
+        if (receiverRegistered) unregisterReceiver(usbReceiver)
+        super.onDestroy()
+    }
+
+    private fun usbDeviceExtra(intent: Intent): UsbDevice? {
+        return if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
+        else @Suppress("DEPRECATION") intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
     }
 
     private fun render() {
@@ -38,38 +85,32 @@ class MainActivity : Activity() {
             setTextColor(0xFFF0F4F8.toInt())
         }
         root.addView(heading("COLIBRIOS / DIGMA Z4", 23f))
-        root.addView(heading("PORT & INSTALLER LAB · 0.1.0", 12f))
+        root.addView(heading("PORT & DEVICE DIAGNOSTICS · 0.2.0", 12f))
         status = heading("USB: scanning…", 15f)
         root.addView(status, LinearLayout.LayoutParams(-1, -2).apply { topMargin = 20 })
         details = heading("", 12f)
         root.addView(details, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = 12; bottomMargin = 12 })
         root.addView(Button(this).apply { text = "Scan USB device"; setOnClickListener { inspectUsb() } })
-        root.addView(Button(this).apply { text = "Select OS / firmware image"; setOnClickListener { chooseImage() } })
+        root.addView(Button(this).apply { text = "Request access + read SCSI identity"; setOnClickListener { requestProbe() } })
+        root.addView(Button(this).apply { text = "Select firmware / OS image"; setOnClickListener { chooseImage() } })
         root.addView(Button(this).apply { text = "Run installation simulation"; setOnClickListener { runInstallationSimulation() } })
         root.addView(Button(this).apply { text = "Export diagnostic report"; setOnClickListener { exportReport() } })
-        root.addView(Button(this).apply {
-            text = "INSTALL TO PLAYER — SIMULATION ONLY"
-            setOnClickListener { runInstallationSimulation() }
-        })
-        root.addView(heading("Simulation mode: models the DIGMA Z4 install pipeline. No flash writes are performed.", 12f),
+        root.addView(heading("Read-only mode. Only standard SCSI INQUIRY is sent to Mass Storage devices. No flash writes or vendor commands.", 12f),
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = 16 })
         setContentView(ScrollView(this).apply { addView(root) })
     }
 
     private fun inspectUsb() {
-        val devices = usb.deviceList.values
+        val devices = usb.deviceList.values.toList()
         if (devices.isEmpty()) {
-            status.text = "USB: no device detected (connect player through OTG)"
-            details.text = "No USB devices are currently visible to Android."
+            status.text = "USB: no device detected"
+            details.text = "Connect DIGMA Z4 to this phone with a USB OTG adapter/cable. Some phones do not support USB host mode."
             return
         }
         val report = StringBuilder()
         devices.forEachIndexed { index, d ->
-            val isMassStorage = (0 until d.interfaceCount).any {
-                d.getInterface(it).interfaceClass == UsbConstants.USB_CLASS_MASS_STORAGE
-            }
             report.append("Device #$index\nVID:PID %04X:%04X\n".format(d.vendorId, d.productId))
-            report.append("Manufacturer: ${d.manufacturerName ?: "?"}\nProduct: ${d.productName ?: "?"}\n")
+            report.append("Name: ${d.deviceName}\nManufacturer: ${d.manufacturerName ?: "?"}\nProduct: ${d.productName ?: "?"}\n")
             report.append("USB version: ${d.version}\nInterfaces: ${d.interfaceCount}\n")
             for (i in 0 until d.interfaceCount) {
                 val intf = d.getInterface(i)
@@ -81,50 +122,109 @@ class MainActivity : Activity() {
                     ))
                 }
             }
-            report.append("Classification: ${if (isMassStorage) "USB Mass Storage" else "not identified as Mass Storage"}\n\n")
-            if (d.vendorId == 0x10D7 && d.productId == 0x1102 && isMassStorage) {
-                report.append("WARNING: matches the reported 10D7:1102 Mass Storage identity; NOT confirmed ADFU.\n")
+            val massStorage = (0 until d.interfaceCount).any { d.getInterface(it).interfaceClass == UsbConstants.USB_CLASS_MASS_STORAGE }
+            report.append("Classification: ${if (massStorage) "USB Mass Storage" else "not Mass Storage"}\n")
+            if (d.vendorId == 0x10D7 && d.productId == 0x1102 && massStorage) {
+                report.append("Known profile: reported DIGMA Z4 normal USB identity. ADFU remains unconfirmed.\n")
             }
+            report.append("Android permission: ${usb.hasPermission(d)}\n\n")
         }
         status.text = "USB: ${devices.size} device(s) detected"
         details.text = report.toString()
     }
 
+    private fun requestProbe() {
+        val device = usb.deviceList.values.firstOrNull { d ->
+            (0 until d.interfaceCount).any { d.getInterface(it).interfaceClass == UsbConstants.USB_CLASS_MASS_STORAGE }
+        }
+        if (device == null) {
+            status.text = "USB: no Mass Storage interface found"
+            return
+        }
+        if (usb.hasPermission(device)) connectAndProbe(device) else {
+            val flags = PendingIntent.FLAG_UPDATE_CURRENT or if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0
+            val permissionIntent = PendingIntent.getBroadcast(this, 0, Intent(permissionAction).setPackage(packageName), flags)
+            usb.requestPermission(device, permissionIntent)
+            status.text = "USB: waiting for Android permission"
+        }
+    }
+
+    private fun connectAndProbe(device: UsbDevice) {
+        status.text = "USB: running read-only SCSI INQUIRY…"
+        Thread {
+            val result = runCatching { scsiInquiry(device) }.fold(
+                onSuccess = { it },
+                onFailure = { "SCSI INQUIRY failed: ${it.javaClass.simpleName}: ${it.message}" }
+            )
+            runOnUiThread {
+                appendDetails("\n--- READ-ONLY SCSI INQUIRY ---\n$result\n")
+                status.text = if (result.startsWith("SCSI INQUIRY failed")) "USB: probe failed" else "USB: SCSI identity read"
+            }
+        }.start()
+    }
+
+    // Standard USB Mass Storage Bulk-Only Transport + SCSI INQUIRY (opcode 0x12).
+    // This requests identification data only; it does not read or modify flash sectors.
+    private fun scsiInquiry(device: UsbDevice): String {
+        val intf = (0 until device.interfaceCount).map { device.getInterface(it) }
+            .firstOrNull { it.interfaceClass == UsbConstants.USB_CLASS_MASS_STORAGE }
+            ?: return "No Mass Storage interface."
+        val bulkIn = (0 until intf.endpointCount).map { intf.getEndpoint(it) }
+            .firstOrNull { it.type == UsbConstants.USB_ENDPOINT_XFER_BULK && it.direction == UsbConstants.USB_DIR_IN }
+            ?: return "Bulk IN endpoint not found."
+        val bulkOut = (0 until intf.endpointCount).map { intf.getEndpoint(it) }
+            .firstOrNull { it.type == UsbConstants.USB_ENDPOINT_XFER_BULK && it.direction == UsbConstants.USB_DIR_OUT }
+            ?: return "Bulk OUT endpoint not found."
+        val connection = usb.openDevice(device) ?: return "Android could not open the USB device."
+        try {
+            if (!connection.claimInterface(intf, true)) return "Could not claim Mass Storage interface."
+            val tag = 0x5A345A34
+            val cbw = ByteBuffer.allocate(31).order(ByteOrder.LITTLE_ENDIAN).apply {
+                putInt(0x43425355) // 'USBC'
+                putInt(tag)
+                putInt(36)
+                put(0x80.toByte()) // device-to-host
+                put(0) // LUN
+                put(6) // CDB length
+                put(0x12) // SCSI INQUIRY
+                put(0) // EVPD
+                put(0) // page code
+                put(36) // allocation length
+                put(0)
+                put(0); put(0); put(0); put(0); put(0); put(0); put(0); put(0); put(0); put(0); put(0); put(0); put(0); put(0); put(0); put(0)
+            }.array()
+            if (connection.bulkTransfer(bulkOut, cbw, cbw.size, 3000) != cbw.size) return "Could not send SCSI command block."
+            val data = ByteArray(36)
+            val got = connection.bulkTransfer(bulkIn, data, data.size, 5000)
+            if (got < 36) return "Short SCSI response ($got/36 bytes). Device may not implement standard BOT INQUIRY."
+            val csw = ByteArray(13)
+            val cswGot = connection.bulkTransfer(bulkIn, csw, csw.size, 3000)
+            if (cswGot != 13) return "Missing BOT command status wrapper ($cswGot/13 bytes)."
+            val statusByte = csw[12].toInt() and 0xFF
+            if (statusByte != 0) return "SCSI command status=$statusByte (command failed or was rejected)."
+            fun ascii(start: Int, length: Int) = String(data, start, length, Charsets.US_ASCII).trim()
+            return "Vendor: ${ascii(8, 8)}\nProduct: ${ascii(16, 16)}\nRevision: ${ascii(32, 4)}\nPeripheral type: ${data[0].toInt() and 0x1F}\nResponse bytes: $got\nBOT status: passed"
+        } finally {
+            runCatching { connection.releaseInterface(intf) }
+            connection.close()
+        }
+    }
+
+    private fun appendDetails(value: String) { details.text = details.text + value }
+
     private fun runInstallationSimulation() {
         val log = StringBuilder()
-        log.append("COLIBRIOS / DIGMA Z4 — INSTALLATION SIMULATION\n")
-        log.append("Mode: DRY RUN / NO DEVICE COMMANDS / NO FLASH WRITES\n\n")
-        log.append("[1/8] USB DISCOVERY ..................... OK\n")
-        log.append("Replaying reported profile VID:PID 10D7:1102\n")
-        log.append("USB Mass Storage / SCSI transparent / Bulk-Only\n")
-        log.append("This is a saved diagnostic profile, not proof of a live connection.\n\n")
-        log.append("[2/8] TARGET IDENTIFICATION ............ OK (PROFILE)\n")
-        log.append("DIGMA Z4 / Actions ATJ2127 / MIPS32-MIPS16 profile\n\n")
-        log.append("[3/8] IMAGE INSPECTION ................. ")
-        if (selectedInfo == "No image selected") {
-            log.append("WAITING FOR IMAGE\nSelect an image to calculate SHA-256 and inspect its header.\n")
-        } else {
-            log.append("HASHED — FORMAT NOT YET VALIDATED\n")
-            log.append(selectedInfo.replace("\n", "\n  "))
-            log.append("\n")
-        }
-        log.append("\n[4/8] ADFU HANDSHAKE ................... NOT RUN\n")
-        log.append("10D7:1102 is currently identified as Mass Storage, not confirmed ADFU.\n")
-        log.append("No vendor-specific command was sent.\n\n")
-        log.append("[5/8] NAND MAP / GEOMETRY .............. UNKNOWN\n")
-        log.append("No verified read-only NAND dump or board-specific layout is available.\n\n")
-        log.append("[6/8] BACKUP / RESTORE CHECK ........... NOT AVAILABLE\n")
-        log.append("No full backup and tested recovery image are available.\n\n")
-        log.append("[7/8] KERNEL COMPATIBILITY ............. BLOCKED\n")
-        log.append("Stock KolibriOS is x86-compatible; the target profile is MIPS.\n")
-        log.append("A MIPS kernel/loader and Z4-specific drivers must be built first.\n\n")
-        log.append("[8/8] FLASH / REBOOT ................... SKIPPED\n")
-        log.append("No data was written. The player remains unchanged.\n\n")
-        log.append("RESULT: SIMULATION COMPLETED; INSTALLATION BLOCKED AT CPU COMPATIBILITY.\n")
-        log.append("Next: inspect a genuine factory firmware dump, map the boot chain, then test a minimal MIPS payload.\n")
+        log.append("COLIBRIOS / DIGMA Z4 — INSTALLATION READINESS\n")
+        log.append("1. USB enumeration: ${if (usb.deviceList.isEmpty()) "NO DEVICE" else "DEVICE VISIBLE"}\n")
+        log.append("2. SCSI INQUIRY: run the read-only probe to obtain target identity.\n")
+        log.append("3. ADFU: NOT VERIFIED for VID:PID 10D7:1102; no mode-switch command sent.\n")
+        log.append("4. NAND geometry and complete backup: NOT AVAILABLE.\n")
+        log.append("5. CPU target: Actions ATJ2127 MIPS32/MIPS16; upstream KolibriOS is x86.\n")
+        log.append("6. Firmware: ${if (selectedInfo == "No image selected") "not selected" else "selected and hashed; format still requires validation"}.\n")
+        log.append("7. Flash: DISABLED until device-specific recovery and a tested MIPS payload exist.\n\n")
+        log.append("This is a readiness report, not an installation. No device data was written.\n")
         details.text = log.toString()
-        status.text = "SIMULATION: completed — no writes"
-        Toast.makeText(this, "Simulation complete: player unchanged", Toast.LENGTH_LONG).show()
+        status.text = "Readiness check completed"
     }
 
     private fun chooseImage() {
@@ -149,7 +249,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun inspectImage(uri: android.net.Uri) {
+    private fun inspectImage(uri: Uri) {
         contentResolver.openInputStream(uri)?.use { input ->
             val digest = MessageDigest.getInstance("SHA-256")
             val first = ByteArray(64)
@@ -170,23 +270,23 @@ class MainActivity : Activity() {
             selectedName = uri.lastPathSegment ?: "selected image"
             val sha = digest.digest().joinToString("") { "%02x".format(it) }
             val magic = first.take(firstCount).joinToString(" ") { "%02X".format(it) }
-            selectedInfo = "Name: $selectedName\nSize: $total bytes\nSHA-256: $sha\nFirst bytes: $magic\n\nInspected only; not validated as an ATJ2127 image."
-            details.text = selectedInfo + "\n\n" + details.text
+            selectedInfo = "Name: $selectedName\nSize: $total bytes\nSHA-256: $sha\nFirst bytes: $magic\nInspected only; not validated as an ATJ2127 firmware image."
+            appendDetails("\n--- SELECTED IMAGE ---\n$selectedInfo\n")
             Toast.makeText(this, "Image inspected (read-only)", Toast.LENGTH_LONG).show()
-        }
+        } ?: run { Toast.makeText(this, "Could not open selected file", Toast.LENGTH_LONG).show() }
     }
 
     private fun exportReport() {
         pendingReport = """ColibriOS DIGMA Z4 Port Lab
 Generated: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())}
 
-USB:
+USB devices:
 ${details.text}
 
 Selected image:
 $selectedInfo
 
-Safety: no flash writes or vendor-specific USB commands were sent.
+Safety: only standard SCSI INQUIRY is implemented. No vendor-specific commands or flash writes.
 """
         val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
