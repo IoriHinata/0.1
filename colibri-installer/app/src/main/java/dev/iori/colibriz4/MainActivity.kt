@@ -48,6 +48,7 @@ class MainActivity : Activity() {
         }
     }
 
+    @Suppress("DEPRECATION")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         usb = getSystemService(USB_SERVICE) as UsbManager
@@ -58,7 +59,7 @@ class MainActivity : Activity() {
             addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
         }
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(usbReceiver, filter, RECEIVER_NOT_EXPORTED)
-        else @Suppress("DEPRECATION") registerReceiver(usbReceiver, filter)
+        else registerReceiver(usbReceiver, filter)
         receiverRegistered = true
         inspectUsb()
     }
@@ -68,9 +69,10 @@ class MainActivity : Activity() {
         super.onDestroy()
     }
 
+    @Suppress("DEPRECATION")
     private fun usbDeviceExtra(intent: Intent): UsbDevice? {
         return if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
-        else @Suppress("DEPRECATION") intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+        else intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
     }
 
     private fun render() {
