@@ -1,8 +1,8 @@
-# ColibriOS for DIGMA Z4 — Port & Device Diagnostics Lab
+# ColibriOS for DIGMA Z4 — MIPS Port & Flasher Lab
 
 Android project in the `0.1` repository. Current release target: **0.2.0**.
 
-## What the Android app does
+## Native OS port status\n\nA first ATJ2127 MIPS32 kernel milestone now lives in `port/mips/`: startup assembly, linker script, freestanding C entry, RAM diagnostic record and a cross-build Makefile. CI builds ELF/BIN/map/disassembly artifacts. This is a RAM-test kernel image, not yet a bootable installed OS or NAND firmware. The x86 upstream kernel cannot run on ATJ2127; this project is a native MIPS reimplementation of the OS core and device-specific services.\n\n## What the Android app does
 
 - Enumerates USB devices and displays VID/PID, product strings, interfaces and endpoints.
 - Requests Android USB Host permission before opening a Mass Storage device.
