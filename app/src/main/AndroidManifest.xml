@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
-    <application android:theme="@android:style/Theme.Material.NoActionBar" android:label="Z4 OS Flasher" android:usesCleartextTraffic="false">
+    <application android:theme="@android:style/Theme.Material.NoActionBar" android:label="DIGMA Z4 OS Lab" android:icon="@drawable/ic_launcher" android:usesCleartextTraffic="false">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
