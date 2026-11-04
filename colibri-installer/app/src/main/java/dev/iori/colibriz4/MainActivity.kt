@@ -189,9 +189,10 @@ class MainActivity : Activity() {
                 put(0x12) // SCSI INQUIRY
                 put(0) // EVPD
                 put(0) // page code
+                put(0) // reserved
                 put(36) // allocation length
-                put(0)
-                put(0); put(0); put(0); put(0); put(0); put(0); put(0); put(0); put(0); put(0); put(0); put(0); put(0); put(0); put(0); put(0)
+                put(0) // control
+                repeat(10) { put(0) } // pad 6-byte CDB to 16 bytes
             }.array()
             if (connection.bulkTransfer(bulkOut, cbw, cbw.size, 3000) != cbw.size) return "Could not send SCSI command block."
             val data = ByteArray(36)
@@ -200,8 +201,13 @@ class MainActivity : Activity() {
             val csw = ByteArray(13)
             val cswGot = connection.bulkTransfer(bulkIn, csw, csw.size, 3000)
             if (cswGot != 13) return "Missing BOT command status wrapper ($cswGot/13 bytes)."
+            val cswBuffer = ByteBuffer.wrap(csw).order(ByteOrder.LITTLE_ENDIAN)
+            val cswSignature = cswBuffer.int
+            val cswTag = cswBuffer.int
+            val residue = cswBuffer.int
             val statusByte = csw[12].toInt() and 0xFF
-            if (statusByte != 0) return "SCSI command status=$statusByte (command failed or was rejected)."
+            if (cswSignature != 0x53425355 || cswTag != tag) return "Invalid BOT status wrapper (signature/tag mismatch)."
+            if (statusByte != 0) return "SCSI command status=$statusByte (command failed or was rejected; residue=$residue)."
             fun ascii(start: Int, length: Int) = String(data, start, length, Charsets.US_ASCII).trim()
             return "Vendor: ${ascii(8, 8)}\nProduct: ${ascii(16, 16)}\nRevision: ${ascii(32, 4)}\nPeripheral type: ${data[0].toInt() and 0x1F}\nResponse bytes: $got\nBOT status: passed"
         } finally {
