@@ -1,7 +1,7 @@
 OUTPUT_FORMAT("elf32-tradlittlemips")
 OUTPUT_ARCH(mips)
 ENTRY(_start)
-MEMORY { RAM (rwx) : ORIGIN = 0x9fc18000, LENGTH = 0x00020000 }
+MEMORY { RAM (rwx) : ORIGIN = 0xbfc18000, LENGTH = 0x00020000 }
 SECTIONS {
   . = ORIGIN(RAM);
   .text : ALIGN(16) { KEEP(*(.text.boot)) *(.text .text.*) } > RAM
