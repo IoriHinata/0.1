@@ -1,54 +1,57 @@
-# ColibriOS for DIGMA Z4 — Port & Installer Lab
+# ColibriOS for DIGMA Z4 — Port & Device Diagnostics Lab
 
-This is a separate Android project inside the `0.1` repository. It is a **porting and read-only diagnostics workbench**, not a falsely advertised one-click flasher.
+Android project in the `0.1` repository. Current release target: **0.2.0**.
 
-## Hardware facts and hard compatibility boundary
+## What the Android app does
 
-- DIGMA Z4 is reported by DIGMA as using Actions Semiconductor ATJ2127 and a 128×128 display.
-- ATJ2127 is a MIPS32/MIPS16 hybrid SoC (see the ATJ2127 reverse-engineering references below).
-- ColibriOS/KolibriOS upstream targets x86-compatible computers and is largely FASM/x86. A stock PC image cannot execute on ATJ2127.
-- Therefore this project does not claim that an upstream ISO/IMG can be installed. The real goal is a **MIPS port of selected ColibriOS concepts/code**, plus a compatible boot chain and board-specific drivers. It may ultimately need a substantial kernel rewrite; it is not an ordinary image conversion.
+- Enumerates USB devices and displays VID/PID, product strings, interfaces and endpoints.
+- Requests Android USB Host permission before opening a Mass Storage device.
+- Runs a **read-only standard SCSI INQUIRY** over USB Mass Storage Bulk-Only Transport to read the device's vendor/product/revision identity.
+- Selects a local firmware/OS file, streams it to compute SHA-256, size and first 64 bytes without loading the entire file into memory.
+- Exports a diagnostic TXT report.
+- Simulates installation readiness without pretending that firmware was installed.
 
-## Current application scope (v0.1.0)
+The app does **not** send vendor-specific SCSI commands, switch ADFU mode, read raw NAND, or write flash. Those operations are deliberately not enabled until the exact Z4 USB protocol, board revision, NAND geometry and recovery method are established.
 
-- Android USB Host enumeration and permission handling.
-- Exact reporting of VID/PID, manufacturer/product, interfaces and endpoints.
-- Identifies the known report identity `10D7:1102` as Mass Storage class, not confirmed Actions ADFU.
-- Local image selection and read-only metadata inspection (size, SHA-256, signatures).
-- Exportable diagnostic report.
-- Explicit safety gate: no flash writes, no vendor SCSI commands, no guessed ADFU switching, no raw disk overwrite.
+## Known hardware / architecture boundary
 
-## Why install is disabled
+- DIGMA's product announcement identifies the DIGMA Z4 (not Z4 BT) with Actions Semiconductor ATJ2127 and a 128×128 display.
+- ATJ2127 is a MIPS32/MIPS16 hybrid SoC.
+- Upstream KolibriOS targets x86-compatible machines. A stock x86 image cannot run on ATJ2127.
+- The actual target is a **new MIPS port / compatible small operating environment**, reusing suitable ideas or portable code from KolibriOS rather than trying to convert its x86 kernel mechanically.
 
-The user's current report is `10D7:1102`, interface `08/05/50` (USB Mass Storage / SCSI transparent / Bulk-Only Transport). This does not match the documented Actions reference IDs `10D6:1101` (mass-storage) and `10D6:10D6` (ADFU) in the community `actions_flash` project. The manufacturer string "ACTIONS" is not proof of protocol compatibility. No verified DIGMA Z4 board revision, RAM map, NAND geometry, bootloader entry method, flash layout, recovery image, or ColibriOS MIPS kernel exists yet.
+## USB evidence currently available
+
+The user's USB report showed `10D7:1102`, Mass Storage interface `08/05/50`, Bulk IN/OUT. The public `actions_flash` reference documents `10D6:1101` as normal Mass Storage and `10D6:10D6` as ADFU for reference devices. These are different IDs; therefore no automatic ADFU switch is assumed.
+
+A successful SCSI INQUIRY confirms only that the standard Mass Storage command path works. It does **not** prove ADFU compatibility or prove the precise SoC identity.
 
 ## Build
 
-Open this directory as an Android project in Android Studio, or run:
+Open `colibri-installer` in Android Studio, or run:
 
 ```bash
 gradle assembleDebug
 ```
 
-The GitHub Actions workflow `.github/workflows/colibri-z4-android.yml` builds the APK and uploads it as an artifact.
+GitHub Actions workflow: `.github/workflows/colibri-z4-android.yml`. The APK is published as the workflow artifact `ColibriOS-DIGMA-Z4-Port-Lab` after a successful build.
 
 ## Research references
 
-- DIGMA Z4 / ATJ2127 product announcement: https://digma.ru/news/kachestvo-i-shirokaya-funkcionalnost-mppleer-digma-z/
-- ColibriOS official source: https://github.com/KolibriOS/kolibrios
-- ColibriOS architecture statement (x86-compatible): https://github.com/KolibriOS/kolibrios
-- ATJ2127 research and read-only dump tools: https://github.com/kilicdev/actions_flash
-- ATJ2127 reverse engineering notes: https://github.com/kilicdev/actions_flash/blob/main/RE_NOTES.md
-- Alternative implementation: https://github.com/ilyakurdyukov/actions_flash
+- DIGMA Z4 product announcement: https://digma.ru/news/kachestvo-i-shirokaya-funkcionalnost-mppleer-digma-z/
+- KolibriOS upstream: https://github.com/KolibriOS/kolibrios
+- ATJ2127 read-only diagnostics, ADFU research and NAND tooling: https://github.com/kilicdev/actions_flash
+- ATJ2127 reverse-engineering notes: https://github.com/kilicdev/actions_flash/blob/main/RE_NOTES.md
 
-## Milestones before any real installer can be enabled
+## Hardware milestones
 
-1. Enter a documented boot/ADFU mode and identify the actual USB ID/protocol.
-2. Read and preserve Boot ROM/SRAM and NAND boot records using a verified read-only method.
-3. Determine board revision, RAM map, NAND geometry, partitions, checksums and recovery path.
-4. Extract and analyze the exact stock firmware for this device.
-5. Build a MIPS target bring-up (serial/UART or display heartbeat first), then memory, GPIO/buttons, display, storage and audio drivers.
-6. Define a signed/validated update package and recovery strategy.
-7. Only then implement writes, with verified device identity, backup validation, power checks and rollback.
+1. Confirm the real live USB identity and SCSI INQUIRY response from this exact Z4.
+2. Find a repeatable, device-specific ADFU entry method and confirm the ADFU USB identity.
+3. Read Boot ROM/SRAM and NAND metadata using a verified read-only method.
+4. Acquire and validate the exact factory firmware and complete backup.
+5. Identify board revision, memory map, NAND model/geometry, display controller and GPIO wiring.
+6. Build a minimal MIPS payload and prove RAM execution before attempting any firmware integration.
+7. Implement a MIPS kernel/runtime and Z4-specific display, input and storage drivers.
+8. Design a recovery-capable update package. Flashing remains disabled until restore is demonstrated.
 
-**Never flash an image for another Actions player or a DIGMA Z4 BT.**
+**Never flash an image for another Actions player or DIGMA Z4 BT.**
