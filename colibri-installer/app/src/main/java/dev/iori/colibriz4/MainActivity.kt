@@ -45,12 +45,13 @@ class MainActivity : Activity() {
         root.addView(details, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = 12; bottomMargin = 12 })
         root.addView(Button(this).apply { text = "Scan USB device"; setOnClickListener { inspectUsb() } })
         root.addView(Button(this).apply { text = "Select OS / firmware image"; setOnClickListener { chooseImage() } })
+        root.addView(Button(this).apply { text = "Run installation simulation"; setOnClickListener { runInstallationSimulation() } })
         root.addView(Button(this).apply { text = "Export diagnostic report"; setOnClickListener { exportReport() } })
         root.addView(Button(this).apply {
-            text = "INSTALL COLIBRIOS — NOT AVAILABLE"
-            isEnabled = false
+            text = "INSTALL TO PLAYER — SIMULATION ONLY"
+            setOnClickListener { runInstallationSimulation() }
         })
-        root.addView(heading("Safety: this build is read-only. Stock x86 ColibriOS cannot run on the ATJ2127 MIPS SoC. Installation remains locked until a compatible MIPS port, verified boot protocol, full backup and recovery path exist.", 12f),
+        root.addView(heading("Simulation mode: models the DIGMA Z4 install pipeline. No flash writes are performed.", 12f),
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = 16 })
         setContentView(ScrollView(this).apply { addView(root) })
     }
@@ -87,6 +88,43 @@ class MainActivity : Activity() {
         }
         status.text = "USB: ${devices.size} device(s) detected"
         details.text = report.toString()
+    }
+
+    private fun runInstallationSimulation() {
+        val log = StringBuilder()
+        log.append("COLIBRIOS / DIGMA Z4 — INSTALLATION SIMULATION\\n")
+        log.append("Mode: DRY RUN / NO DEVICE COMMANDS / NO FLASH WRITES\\n\\n")
+        log.append("[1/8] USB DISCOVERY ..................... OK\\n")
+        log.append("Replaying reported profile VID:PID 10D7:1102\\n")
+        log.append("USB Mass Storage / SCSI transparent / Bulk-Only\\n")
+        log.append("This is a saved diagnostic profile, not proof of a live connection.\\n\\n")
+        log.append("[2/8] TARGET IDENTIFICATION ............ OK (PROFILE)\\n")
+        log.append("DIGMA Z4 / Actions ATJ2127 / MIPS32-MIPS16 profile\\n\\n")
+        log.append("[3/8] IMAGE INSPECTION ................. ")
+        if (selectedInfo == "No image selected") {
+            log.append("WAITING FOR IMAGE\\nSelect an image to calculate SHA-256 and inspect its header.\\n")
+        } else {
+            log.append("HASHED — FORMAT NOT YET VALIDATED\\n")
+            log.append(selectedInfo.replace("\\n", "\\n  "))
+            log.append("\\n")
+        }
+        log.append("\\n[4/8] ADFU HANDSHAKE ................... NOT RUN\\n")
+        log.append("10D7:1102 is currently identified as Mass Storage, not confirmed ADFU.\\n")
+        log.append("No vendor-specific command was sent.\\n\\n")
+        log.append("[5/8] NAND MAP / GEOMETRY .............. UNKNOWN\\n")
+        log.append("No verified read-only NAND dump or board-specific layout is available.\\n\\n")
+        log.append("[6/8] BACKUP / RESTORE CHECK ........... NOT AVAILABLE\\n")
+        log.append("No full backup and tested recovery image are available.\\n\\n")
+        log.append("[7/8] KERNEL COMPATIBILITY ............. BLOCKED\\n")
+        log.append("Stock KolibriOS is x86-compatible; the target profile is MIPS.\\n")
+        log.append("A MIPS kernel/loader and Z4-specific drivers must be built first.\\n\\n")
+        log.append("[8/8] FLASH / REBOOT ................... SKIPPED\\n")
+        log.append("No data was written. The player remains unchanged.\\n\\n")
+        log.append("RESULT: SIMULATION COMPLETED; INSTALLATION BLOCKED AT CPU COMPATIBILITY.\\n")
+        log.append("Next: inspect a genuine factory firmware dump, map the boot chain, then test a minimal MIPS payload.\\n")
+        details.text = log.toString()
+        status.text = "SIMULATION: completed — no writes"
+        Toast.makeText(this, "Simulation complete: player unchanged", Toast.LENGTH_LONG).show()
     }
 
     private fun chooseImage() {
