@@ -6,7 +6,25 @@ on:
       - '.github/workflows/colibri-z4-android.yml'
   workflow_dispatch:
 jobs:
-  build:
+  mips-kernel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install MIPS cross compiler
+        run: sudo apt-get update && sudo apt-get install -y gcc-mipsel-linux-gnu binutils-mipsel-linux-gnu make
+      - name: Build ATJ2127 MIPS kernel
+        working-directory: colibri-installer/port/mips
+        run: make CROSS=mipsel-linux-gnu-
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ColibriOS-DIGMA-Z4-MIPS-RAM-test
+          path: |
+            colibri-installer/port/mips/colibri-z4.elf
+            colibri-installer/port/mips/colibri-z4.bin
+            colibri-installer/port/mips/colibri-z4.map
+            colibri-installer/port/mips/colibri-z4.dis
+          if-no-files-found: error
+  android-app:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
