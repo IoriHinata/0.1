@@ -21,6 +21,7 @@ jobs:
           path: |
             colibri-installer/port/mips/colibri-z4.elf
             colibri-installer/port/mips/colibri-z4.bin
+            colibri-installer/port/mips/colibri-z4.img
             colibri-installer/port/mips/colibri-z4.map
             colibri-installer/port/mips/colibri-z4.dis
           if-no-files-found: error
