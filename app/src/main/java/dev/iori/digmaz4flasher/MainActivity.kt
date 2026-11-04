@@ -72,7 +72,7 @@ class MainActivity : Activity() {
             }
 
         root.addView(label("DIGMA Z4", 28f, Color.WHITE, true))
-        root.addView(label("OS LAB  •  IMAGE INSPECTOR  •  v0.2.0", 11f, Color.rgb(116, 180, 255)))
+        root.addView(label("OS LAB  •  ATJ2127 RESEARCH  •  v0.2.1", 11f, Color.rgb(116, 180, 255)))
         val divider = View(this).apply { setBackgroundColor(Color.rgb(44, 58, 80)) }
         root.addView(divider, LinearLayout.LayoutParams(-1, 1).apply { topMargin = 16; bottomMargin = 18 })
 
@@ -215,7 +215,11 @@ class MainActivity : Activity() {
             saveButton.isEnabled = selectedImageUri != null
             return
         }
-        val device = devices.firstOrNull { it.vendorId == 0x10D6 } ?: devices.first()
+        val device = devices.firstOrNull {
+            it.manufacturerName?.contains("ACTION", ignoreCase = true) == true ||
+                it.productName?.contains("FlashDisk", ignoreCase = true) == true ||
+                it.vendorId == 0x10D6 || it.vendorId == 0x10D7
+        } ?: devices.first()
         currentDevice = device
         if (usb.hasPermission(device)) inspect(device) else {
             status.text = "Найдено USB-устройство. Запрашиваем разрешение Android…"
@@ -259,9 +263,20 @@ class MainActivity : Activity() {
         out.append("\nSafety: no vendor commands; no flash/RAM writes.\n")
         report = out.toString()
         details.text = report
-        status.text = if (d.vendorId == 0x10D6) {
-            "USB VID Actions Semiconductor (0x10D6) найден. Режим загрузчика и модель не подтверждены."
-        } else "USB-устройство найдено: %04X:%04X".format(d.vendorId, d.productId)
+        val massStorage = (0 until d.interfaceCount).any {
+            d.getInterface(it).interfaceClass == UsbConstants.USB_CLASS_MASS_STORAGE
+        }
+        val actionsLabel = d.manufacturerName?.contains("ACTION", ignoreCase = true) == true ||
+            d.productName?.contains("FlashDisk", ignoreCase = true) == true
+        status.text = when {
+            d.vendorId == 0x10D7 && d.productId == 0x1102 && massStorage ->
+                "Найден ACTIONS HS USB FlashDisk (10D7:1102). Это режим накопителя, не ADFU. VID отличается от известных Actions ADFU-проектов."
+            massStorage && actionsLabel ->
+                "Устройство ACTIONS в режиме USB Mass Storage. Загрузчик не обнаружен; запись прошивки отключена."
+            d.vendorId == 0x10D6 && (d.productId == 0x10D6 || d.productId == 0x8888 || d.productId == 0xFF51) ->
+                "Похож на Actions ADFU USB ID. Это только совпадение ID, чип и протокол ещё нужно подтвердить."
+            else -> "USB-устройство найдено: %04X:%04X".format(d.vendorId, d.productId)
+        }
         saveButton.isEnabled = true
     }
 
